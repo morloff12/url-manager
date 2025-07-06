@@ -1,13 +1,12 @@
+# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, db
 import os
-import requests
-import re
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+from scraping import scrape_product
+from emailer import send_email_report
 
 # --- Flask App Setup ---
 app = Flask(__name__)
@@ -16,17 +15,19 @@ CORS(app)
 # --- Firebase Init ---
 cred = credentials.Certificate("firebase-admin-key.json")
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://YOUR_PROJECT.firebaseio.com'  # replace with yours
+    'databaseURL': 'https://url-manager-ae427.firebaseio.com'  # Replace with your actual URL
 })
-
 REF = db.reference("/urls")
 
-# --- Routes: CRUD ---
+# --- API Routes ---
+
+# Get all URLs
 @app.route("/urls", methods=["GET"])
 def get_urls():
     data = REF.get()
     return jsonify(list(data.values()) if data else [])
 
+# Add new URL
 @app.route("/urls", methods=["POST"])
 def add_url():
     data = request.json
@@ -44,6 +45,7 @@ def add_url():
     new_ref.set(item)
     return jsonify(item), 201
 
+# Update existing URL
 @app.route("/urls/<string:url_id>", methods=["PUT"])
 def update_url(url_id):
     updates = request.json
@@ -53,12 +55,13 @@ def update_url(url_id):
     item_ref.update(updates)
     return jsonify({"success": True})
 
+# Delete URL
 @app.route("/urls/<string:url_id>", methods=["DELETE"])
 def delete_url(url_id):
     REF.child(url_id).delete()
     return jsonify({"success": True})
 
-# --- /run-scan ---
+# Run product scan and email if sales detected
 @app.route("/run-scan", methods=["POST"])
 def run_scan():
     expected_token = os.environ.get("SCAN_TOKEN")
@@ -66,34 +69,29 @@ def run_scan():
     if expected_token is None or received_token != expected_token:
         return jsonify({"error": "Unauthorized"}), 401
 
-    # existing scan logic follows...
-
+    data = REF.get() or {}
     results = []
-    for item in data.values():
-        if item.get("disabled"):
+
+    for key, entry in data.items():
+        if entry.get("disabled"):
             continue
-        url = item["url"]
-        title = item.get("title", "")
+
+        url = entry["url"]
+        title = entry.get("title", "").strip()
 
         try:
-            r = requests.get(url, timeout=10)
-            html = r.text
+            result = scrape_product(title, url)
+            if result and result.get("on_sale"):
+                results.append(result)
+        except Exception as e:
+            print(f"❌ Error scraping {url}: {e}")
 
-            # Get product title if missing
-            if not title:
-                match = re.search(r'<div class="field[^>]+field--name-field-web-description[^>]*">(.*?)</div>', html)
-                if match:
-                    title = match.group(1).strip()
+    if results:
+        send_email_report(results)
 
-            # Detect sale price
-            is_on_sale = bool(re.search(r'<div class="pro
+    return jsonify({"found_sales": len(results)})
 
+# --- App Runner ---
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000 if not set
-<<<<<<< HEAD
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
-=======
-    app.run(host="0.0.0.0", port=port)
->>>>>>> 982d9e6 (Switch to Firebase backend)
