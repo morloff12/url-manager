@@ -27,11 +27,39 @@ def add_url():
     data = request.json
     url = data.get("url")
     if not url:
-        return jsonify({"error": "Missing 'url' field"}), 400
+        return jsonify({"error": "Missing 'url'"}), 400
+
     urls = load_urls()
-    urls.append(url)
+    next_id = max((item["id"] for item in urls), default=0) + 1
+    new_entry = {"id": next_id, "url": url, "disabled": False}
+    urls.append(new_entry)
     save_urls(urls)
-    return jsonify({"success": True, "url": url})
+    return jsonify(new_entry), 201
+
+@app.route("/urls/<int:url_id>", methods=["PUT"])
+def update_url(url_id):
+    data = request.json
+    urls = load_urls()
+    updated = False
+    for item in urls:
+        if item["id"] == url_id:
+            if "url" in data:
+                item["url"] = data["url"]
+            if "disabled" in data:
+                item["disabled"] = data["disabled"]
+            updated = True
+            break
+    if not updated:
+        return jsonify({"error": "Item not found"}), 404
+    save_urls(urls)
+    return jsonify({"success": True})
+
+@app.route("/urls/<int:url_id>", methods=["DELETE"])
+def delete_url(url_id):
+    urls = load_urls()
+    urls = [item for item in urls if item["id"] != url_id]
+    save_urls(urls)
+    return jsonify({"success": True})
 
 if __name__ == "__main__":
     import os
