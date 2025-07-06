@@ -1,27 +1,29 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
+import firebase_admin
+from firebase_admin import credentials, db
 import os
 
 app = Flask(__name__)
 CORS(app)
 
-DATA_FILE = "urls.json"
+# Initialize Firebase Admin
+cred = credentials.Certificate("firebase-admin-key.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://YOUR_PROJECT_ID.firebaseio.com'  # <- REPLACE THIS
+})
 
-def load_urls():
-    if not os.path.exists(DATA_FILE):
-        return []
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+REF = db.reference("/urls")
 
-def save_urls(urls):
-    with open(DATA_FILE, "w") as f:
-        json.dump(urls, f)
-
+# Fetch all URLs
 @app.route("/urls", methods=["GET"])
 def get_urls():
-    return jsonify(load_urls())
+    data = REF.get()
+    if not data:
+        return jsonify([])
+    return jsonify(list(data.values()))
 
+# Add a new URL
 @app.route("/urls", methods=["POST"])
 def add_url():
     data = request.json
@@ -29,36 +31,32 @@ def add_url():
     if not url:
         return jsonify({"error": "Missing 'url'"}), 400
 
-    urls = load_urls()
-    next_id = max((item["id"] for item in urls), default=0) + 1
-    new_entry = {"id": next_id, "url": url, "disabled": False}
-    urls.append(new_entry)
-    save_urls(urls)
-    return jsonify(new_entry), 201
+    new_ref = REF.push()
+    new_data = {
+        "id": new_ref.key,
+        "url": url,
+        "disabled": False
+    }
+    new_ref.set(new_data)
+    return jsonify(new_data), 201
 
-@app.route("/urls/<int:url_id>", methods=["PUT"])
+# Update URL (edit or toggle disabled)
+@app.route("/urls/<string:url_id>", methods=["PUT"])
 def update_url(url_id):
-    data = request.json
-    urls = load_urls()
-    updated = False
-    for item in urls:
-        if item["id"] == url_id:
-            if "url" in data:
-                item["url"] = data["url"]
-            if "disabled" in data:
-                item["disabled"] = data["disabled"]
-            updated = True
-            break
-    if not updated:
+    updates = request.json
+    item_ref = REF.child(url_id)
+    if not item_ref.get():
         return jsonify({"error": "Item not found"}), 404
-    save_urls(urls)
+    item_ref.update(updates)
     return jsonify({"success": True})
 
-@app.route("/urls/<int:url_id>", methods=["DELETE"])
+# Delete a URL
+@app.route("/urls/<string:url_id>", methods=["DELETE"])
 def delete_url(url_id):
-    urls = load_urls()
-    urls = [item for item in urls if item["id"] != url_id]
-    save_urls(urls)
+    item_ref = REF.child(url_id)
+    if not item_ref.get():
+        return jsonify({"error": "Item not found"}), 404
+    item_ref.delete()
     return jsonify({"success": True})
 
 if __name__ == "__main__":
