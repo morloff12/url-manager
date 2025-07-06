@@ -10,7 +10,11 @@ CORS(app)
 # Initialize Firebase Admin
 cred = credentials.Certificate("firebase-admin-key.json")
 firebase_admin.initialize_app(cred, {
+<<<<<<< HEAD
     'databaseURL': 'https://YOUR_PROJECT_ID.firebaseio.com'  # <- REPLACE THIS
+=======
+    'databaseURL': 'https://url-manager-ae427.firebaseio.com'  # <- REPLACE THIS
+>>>>>>> 982d9e6 (Switch to Firebase backend)
 })
 
 REF = db.reference("/urls")
@@ -62,5 +66,9 @@ def delete_url(url_id):
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 5000))  # Default to 5000 if not set
+<<<<<<< HEAD
     app.run(host="0.0.0.0", port=port)
 
+=======
+    app.run(host="0.0.0.0", port=port)
+>>>>>>> 982d9e6 (Switch to Firebase backend)
