@@ -92,8 +92,10 @@ def send_email():
         msg['To'] = os.environ.get("SMTP_TO")
 
         print("Connecting to SMTP")
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
+	server = smtplib.SMTP('smtp.gmail.com', 587)
+	server.ehlo()
+	server.starttls()
+	server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
         print("Logged in")
         server.send_message(msg)
         server.quit()
