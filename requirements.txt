@@ -3,3 +3,4 @@ flask-cors
 firebase-admin
 flask-cors
 python-dotenv
+beautifulsoup4
