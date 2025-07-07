@@ -77,16 +77,21 @@ def scrape_price_from_url(url):
         reg_price = None
         sale_price = None
 
-        reg = soup.find(class_="field--name-commerce-price")
+        # Specific to LiquorMarts.ca
+        reg = soup.find(class_="retail_price")
         if reg:
             reg_price = reg.get_text(strip=True)
 
-        sale = soup.find(class_="price--without-tax")
+        sale = soup.find(class_="promo_price")
         if sale:
             sale_price = sale.get_text(strip=True)
 
+        if reg_price == sale_price:
+            sale_price = None
+
         return reg_price, sale_price
     except Exception as e:
+        print(f"[SCRAPER ERROR] {e}")
         return None, None
 
 @app.route("/send-email", methods=["POST"])
@@ -108,15 +113,24 @@ def send_email():
             reg_price, sale_price = scrape_price_from_url(entry.get("url"))
             title = entry.get("title", "(no title)")
             url = entry.get("url")
-            html_rows += f"<tr><td><strong>{title}</strong></td><td><a href='{url}'>{url}</a></td><td>{reg_price or ''}</td><td>{sale_price or ''}</td></tr>"
+            html_rows += f"<tr><td><strong>{title}</strong></td><td><a href='{url}'>{url}</a></td><td align='right'>{reg_price or ''}</td><td align='right'>{sale_price or ''}</td></tr>"
 
         html_body = f"""
         <html>
         <body>
             <p>Watchlist Items as of {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC:</p>
-            <table border='1' cellpadding='6' cellspacing='0'>
-                <tr><th>Title</th><th>URL</th><th>Regular Price</th><th>Sale Price</th></tr>
+            <table border='1' cellpadding='6' cellspacing='0' style="border-collapse: collapse; font-family: Arial, sans-serif;">
+              <thead style="background-color: #f2f2f2;">
+                <tr>
+                  <th align="left">Title</th>
+                  <th align="left">URL</th>
+                  <th align="right">Regular Price</th>
+                  <th align="right">Sale Price</th>
+                </tr>
+              </thead>
+              <tbody>
                 {html_rows}
+              </tbody>
             </table>
         </body>
         </html>
