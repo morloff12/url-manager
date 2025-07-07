@@ -5,7 +5,9 @@ from firebase_admin import credentials, db
 import os
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
 
@@ -30,7 +32,9 @@ REF = db.reference("/urls")
 @app.route("/urls", methods=["GET"])
 def get_urls():
     data = REF.get()
-    return jsonify(data or {})
+    if not data:
+        return jsonify({})
+    return jsonify(data)
 
 @app.route("/urls", methods=["POST"])
 def add_url():
@@ -69,51 +73,46 @@ def send_email():
     received_token = request.headers.get("X-Secret")
 
     if expected_token is None or received_token != expected_token:
-        print("Forbidden: Secret mismatch")
         return jsonify({"error": "Forbidden"}), 403
 
     try:
         print("Token validated")
-
-        data = db.reference('urls').get()
-        if data is None:
-            print("No data returned from Firebase")
-            return jsonify({"message": "No data in Firebase"}), 200
+        data = db.reference('urls').get() or {}
+        print(f"Data retrieved: {len(data)} items")
 
         active_items = [entry for entry in data.values() if not entry.get("disabled", False)]
-        print(f"Active items: {len(active_items)}")
-
         if not active_items:
+            print("No active items")
             return jsonify({"message": "No active items to include in email"}), 200
 
-        body = "\n".join([f"- {entry.get('title', '(no title)')}: {entry.get('url')}" for entry in active_items])
-        print(f"Composed body:\n{body}")
+        html_items = "".join([f"<li><strong>{entry.get('title', '(no title)')}</strong>: <a href='{entry.get('url')}'>{entry.get('url')}</a></li>" for entry in active_items])
+        html_body = f"""
+        <html>
+        <body>
+            <p>Here are the current active watchlist items as of {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC:</p>
+            <ul>{html_items}</ul>
+        </body>
+        </html>
+        """
 
-        msg = MIMEText(body)
+        msg = MIMEMultipart("alternative")
         msg['Subject'] = 'URL Manager: Items on Watchlist'
         msg['From'] = os.environ.get("SMTP_FROM")
         msg['To'] = os.environ.get("SMTP_TO")
+        msg.attach(MIMEText(html_body, "html"))
 
-        smtp_user = os.environ.get("SMTP_USER")
-        smtp_pass = os.environ.get("SMTP_PASS")
-
-        if not all([smtp_user, smtp_pass, msg['From'], msg['To']]):
-            raise ValueError("Missing SMTP credentials or email headers")
-
-        print("Connecting to SMTP server...")
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
+        print("Connecting to SMTP")
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
+        print("Logged in")
         server.send_message(msg)
         server.quit()
+        print("Email sent")
 
-        print("Email sent successfully.")
         return jsonify({"message": "Email sent"}), 200
 
     except Exception as e:
-        import traceback
-        print("EMAIL ERROR:", str(e))
-        traceback.print_exc()
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route("/ping-firebase")
@@ -123,6 +122,10 @@ def ping():
         return jsonify({"status": "success", "count": len(snapshot) if snapshot else 0})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/healthcheck")
+def healthcheck():
+    return jsonify({"status": "ok", "time": datetime.utcnow().isoformat()})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
