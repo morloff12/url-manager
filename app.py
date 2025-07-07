@@ -77,5 +77,39 @@ def update_url(key):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+from flask import abort
+
+@app.route('/send-email', methods=['POST'])
+def send_email():
+    expected_token = os.environ.get("EMAIL_SECRET")
+    received_token = request.headers.get("X-Secret")
+
+    if expected_token is None or received_token != expected_token:
+        return jsonify({"error": "Forbidden"}), 403
+
+    try:
+        data = db.reference('urls').get() or {}
+
+        active_items = [entry for entry in data.values() if not entry.get("disabled", False)]
+        if not active_items:
+            return jsonify({"message": "No active items to include in email"}), 200
+
+        body = "\n".join([f"- {entry.get('title', '(no title)')}: {entry.get('url')}" for entry in active_items])
+
+        msg = MIMEText(body)
+        msg['Subject'] = 'URL Manager: Items on Watchlist'
+        msg['From'] = os.environ.get("SMTP_FROM")
+        msg['To'] = os.environ.get("SMTP_TO")
+
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
+        server.send_message(msg)
+        server.quit()
+
+        return jsonify({"message": "Email sent"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
