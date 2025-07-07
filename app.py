@@ -69,40 +69,51 @@ def send_email():
     received_token = request.headers.get("X-Secret")
 
     if expected_token is None or received_token != expected_token:
+        print("Forbidden: Secret mismatch")
         return jsonify({"error": "Forbidden"}), 403
 
     try:
         print("Token validated")
-        data = db.reference('urls').get() or {}
-        print(f"Data retrieved: {len(data)} items")
+
+        data = db.reference('urls').get()
+        if data is None:
+            print("No data returned from Firebase")
+            return jsonify({"message": "No data in Firebase"}), 200
 
         active_items = [entry for entry in data.values() if not entry.get("disabled", False)]
+        print(f"Active items: {len(active_items)}")
+
         if not active_items:
-            print("No active items")
             return jsonify({"message": "No active items to include in email"}), 200
 
         body = "\n".join([f"- {entry.get('title', '(no title)')}: {entry.get('url')}" for entry in active_items])
-        print("Body composed")
+        print(f"Composed body:\n{body}")
 
         msg = MIMEText(body)
         msg['Subject'] = 'URL Manager: Items on Watchlist'
         msg['From'] = os.environ.get("SMTP_FROM")
         msg['To'] = os.environ.get("SMTP_TO")
 
-        print("Connecting to SMTP via STARTTLS (587)")
+        smtp_user = os.environ.get("SMTP_USER")
+        smtp_pass = os.environ.get("SMTP_PASS")
+
+        if not all([smtp_user, smtp_pass, msg['From'], msg['To']]):
+            raise ValueError("Missing SMTP credentials or email headers")
+
+        print("Connecting to SMTP server...")
         server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.ehlo()
         server.starttls()
-        server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
-        print("Logged in")
+        server.login(smtp_user, smtp_pass)
         server.send_message(msg)
         server.quit()
-        print("Email sent")
 
+        print("Email sent successfully.")
         return jsonify({"message": "Email sent"}), 200
 
     except Exception as e:
-        print("ERROR:", str(e))
+        import traceback
+        print("EMAIL ERROR:", str(e))
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route("/ping-firebase")
