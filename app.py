@@ -19,7 +19,7 @@ import json
 firebase_creds_dict = json.loads(base64.b64decode(firebase_creds_json))
 cred = credentials.Certificate(firebase_creds_dict)
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://url-manager-ae427.firebaseio.com'
+    'databaseURL': 'https://url-manager-ae427-default-rtdb.firebaseio.com'
 })
 
 app = Flask(__name__)
