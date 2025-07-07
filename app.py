@@ -17,7 +17,7 @@ service_account_info = json.loads(firebase_key)
 # Initialize Firebase
 cred = credentials.Certificate(service_account_info)
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://url-manager-ae427.firebaseio.com'
+    'databaseURL': 'https://url-manager-ae427-default-rtdb.firebaseio.com'
 })
 
 REF = db.reference("/urls")
@@ -49,20 +49,14 @@ def get_urls():
 @app.route("/urls", methods=["POST"])
 def add_url():
     try:
-        url_data = request.get_json(force=True)
-        if not url_data or not isinstance(url_data, dict):
-            return jsonify({"error": "Invalid or missing JSON body"}), 400
-
-        required_fields = ["url", "title", "disabled"]
-        missing = [f for f in required_fields if f not in url_data]
-        if missing:
-            return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
-
+        url_data = request.json
+        if not url_data:
+            raise ValueError("Missing JSON body")
         new_ref = REF.push()
         new_ref.set(url_data)
         return jsonify({"success": True, "id": new_ref.key}), 201
     except Exception as e:
-        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/urls/<key>", methods=["DELETE"])
 def delete_url(key):
@@ -76,6 +70,8 @@ def delete_url(key):
 def update_url(key):
     try:
         updates = request.json
+        if not updates:
+            raise ValueError("Missing JSON body")
         REF.child(key).update(updates)
         return jsonify({"success": True}), 200
     except Exception as e:
