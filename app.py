@@ -30,9 +30,7 @@ REF = db.reference("/urls")
 @app.route("/urls", methods=["GET"])
 def get_urls():
     data = REF.get()
-    if not data:
-        return jsonify({})
-    return jsonify(data)
+    return jsonify(data or {})
 
 @app.route("/urls", methods=["POST"])
 def add_url():
@@ -91,11 +89,11 @@ def send_email():
         msg['From'] = os.environ.get("SMTP_FROM")
         msg['To'] = os.environ.get("SMTP_TO")
 
-        print("Connecting to SMTP")
-	server = smtplib.SMTP('smtp.gmail.com', 587)
-	server.ehlo()
-	server.starttls()
-	server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
+        print("Connecting to SMTP via STARTTLS (587)")
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.ehlo()
+        server.starttls()
+        server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
         print("Logged in")
         server.send_message(msg)
         server.quit()
