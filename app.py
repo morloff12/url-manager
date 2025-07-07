@@ -8,6 +8,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
 
 load_dotenv()
 
@@ -67,6 +69,26 @@ def delete_url(url_id):
     REF.child(url_id).delete()
     return jsonify({"success": True})
 
+def scrape_price_from_url(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        reg_price = None
+        sale_price = None
+
+        reg = soup.find(class_="field--name-commerce-price")
+        if reg:
+            reg_price = reg.get_text(strip=True)
+
+        sale = soup.find(class_="price--without-tax")
+        if sale:
+            sale_price = sale.get_text(strip=True)
+
+        return reg_price, sale_price
+    except Exception as e:
+        return None, None
+
 @app.route("/send-email", methods=["POST"])
 def send_email():
     expected_token = os.environ.get("EMAIL_SECRET")
@@ -76,43 +98,44 @@ def send_email():
         return jsonify({"error": "Forbidden"}), 403
 
     try:
-        print("Token validated")
         data = db.reference('urls').get() or {}
-        print(f"Data retrieved: {len(data)} items")
-
         active_items = [entry for entry in data.values() if not entry.get("disabled", False)]
         if not active_items:
-            print("No active items")
             return jsonify({"message": "No active items to include in email"}), 200
 
-        html_items = "".join([f"<li><strong>{entry.get('title', '(no title)')}</strong>: <a href='{entry.get('url')}'>{entry.get('url')}</a></li>" for entry in active_items])
+        html_rows = ""
+        for entry in active_items:
+            reg_price, sale_price = scrape_price_from_url(entry.get("url"))
+            title = entry.get("title", "(no title)")
+            url = entry.get("url")
+            html_rows += f"<tr><td><strong>{title}</strong></td><td><a href='{url}'>{url}</a></td><td>{reg_price or ''}</td><td>{sale_price or ''}</td></tr>"
+
         html_body = f"""
         <html>
         <body>
-            <p>Here are the current active watchlist items as of {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC:</p>
-            <ul>{html_items}</ul>
+            <p>Watchlist Items as of {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC:</p>
+            <table border='1' cellpadding='6' cellspacing='0'>
+                <tr><th>Title</th><th>URL</th><th>Regular Price</th><th>Sale Price</th></tr>
+                {html_rows}
+            </table>
         </body>
         </html>
         """
 
         msg = MIMEMultipart("alternative")
-        msg['Subject'] = 'URL Manager: Items on Watchlist'
+        msg['Subject'] = 'URL Manager: Items on Sale'
         msg['From'] = os.environ.get("SMTP_FROM")
         msg['To'] = os.environ.get("SMTP_TO")
         msg.attach(MIMEText(html_body, "html"))
 
-        print("Connecting to SMTP")
         server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
         server.login(os.environ.get("SMTP_USER"), os.environ.get("SMTP_PASS"))
-        print("Logged in")
         server.send_message(msg)
         server.quit()
-        print("Email sent")
 
         return jsonify({"message": "Email sent"}), 200
 
     except Exception as e:
-        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 @app.route("/ping-firebase")
