@@ -49,12 +49,20 @@ def get_urls():
 @app.route("/urls", methods=["POST"])
 def add_url():
     try:
-        url_data = request.json
+        url_data = request.get_json(force=True)
+        if not url_data or not isinstance(url_data, dict):
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+        required_fields = ["url", "title", "disabled"]
+        missing = [f for f in required_fields if f not in url_data]
+        if missing:
+            return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+
         new_ref = REF.push()
         new_ref.set(url_data)
         return jsonify({"success": True, "id": new_ref.key}), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Internal Server Error: {str(e)}"}), 500
 
 @app.route("/urls/<key>", methods=["DELETE"])
 def delete_url(key):
