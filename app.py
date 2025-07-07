@@ -25,7 +25,7 @@ firebase_creds_dict = json.loads(firebase_creds_json)
 
 cred = credentials.Certificate(firebase_creds_dict)
 firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://url-manager.firebaseio.com'  # Replace with your databaseURL
+    'databaseURL': 'https://url-manager-ae427.firebaseio.com'  # Replace with your databaseURL
 })
 
 REF = db.reference("/urls")
