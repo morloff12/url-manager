@@ -18,7 +18,7 @@ service_account_info = json.loads(firebase_key)
 # Initialize Firebase
 if not firebase_admin._apps:
     firebase_admin.initialize_app(credentials.Certificate(service_account_info), {
-        'databaseURL': 'https://url-manager-ae427.firebaseio.com'
+        'databaseURL': 'https://url-manager-ae427-default-rtdb.firebaseio.com'
     })
 
 REF = db.reference("/urls")
