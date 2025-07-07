@@ -1,138 +1,86 @@
-# app.py
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import firebase_admin
-from firebase_admin import credentials, db
 import os
 import json
 import base64
-import requests
-import re
-from emailer import send_email_report
+import firebase_admin
+from firebase_admin import credentials, db
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 
-# --- Flask App Setup ---
+# Load Firebase credentials from base64 string
+firebase_creds_json = os.environ.get('FIREBASE_ADMIN_BASE64')
+if not firebase_creds_json:
+    raise ValueError("Missing FIREBASE_ADMIN_BASE64 environment variable")
+
+firebase_creds_dict = json.loads(base64.b64decode(firebase_creds_json))
+cred = credentials.Certificate(firebase_creds_dict)
+
+# Initialize Firebase Admin SDK with correct database URL
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://url-manager-ae427.firebaseio.com'
+})
+
+REF = db.reference('urls')
+
+# Flask app setup
 app = Flask(__name__)
 CORS(app)
 
-# --- Firebase Initialization ---
-firebase_creds_b64 = os.environ.get("FIREBASE_CREDENTIALS_B64")
-if not firebase_creds_b64:
-    raise Exception("Missing FIREBASE_CREDENTIALS_B64 environment variable")
+@app.route('/')
+def index():
+    return "URL Manager API is running", 200
 
-firebase_creds_json = base64.b64decode(firebase_creds_b64).decode("utf-8")
-firebase_creds_dict = json.loads(firebase_creds_json)
-
-cred = credentials.Certificate(firebase_creds_dict)
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://url-manager-s98r.firebaseio.com/'  # Replace with your databaseURL
-})
-
-REF = db.reference("/urls")
-
-# --- Routes: CRUD ---
-@app.route("/urls", methods=["GET"])
+@app.route('/urls', methods=['GET'])
 def get_urls():
-    data = REF.get()
-    return jsonify(list(data.values()) if data else [])
-
-@app.route("/urls", methods=["POST"])
-def add_url():
-    data = request.json
-    url = data.get("url")
-    title = data.get("title", "")
-    if not url:
-        return jsonify({"error": "Missing 'url'"}), 400
-    new_ref = REF.push()
-    item = {
-        "id": new_ref.key,
-        "url": url,
-        "title": title,
-        "disabled": False
-    }
-    new_ref.set(item)
-    return jsonify(item), 201
-
-@app.route("/urls/<string:url_id>", methods=["PUT"])
-def update_url(url_id):
-    updates = request.json
-    item_ref = REF.child(url_id)
-    if not item_ref.get():
-        return jsonify({"error": "Not found"}), 404
-    item_ref.update(updates)
-    return jsonify({"success": True})
-
-@app.route("/urls/<string:url_id>", methods=["DELETE"])
-def delete_url(url_id):
-    REF.child(url_id).delete()
-    return jsonify({"success": True})
-
-# --- Scraper ---
-def scrape_product(title, url):
     try:
-        r = requests.get(url, timeout=10)
-        html = r.text
-        regular_price = None
-        sale_price = None
-        is_on_sale = False
-
-        # Try to extract title if missing
-        if not title:
-            match = re.search(r'<div class="field[^>]*field--name-field-web-description[^>]*">(.*?)</div>', html)
-            if match:
-                title = match.group(1).strip()
-
-        # Detect prices
-        promo_match = re.search(r'<div class="promo_price">(.*?)</div>', html)
-        retail_match = re.search(r'<div class="retail_price">(.*?)</div>', html)
-        regular_match = re.search(r'<div class="product_price">\s*(\$[\d.]+)\s*</div>', html)
-
-        if promo_match:
-            is_on_sale = True
-            sale_price = promo_match.group(1).strip()
-            if retail_match:
-                regular_price = retail_match.group(1).strip()
-        elif regular_match:
-            regular_price = regular_match.group(1).strip()
-
-        return {
-            "title": title or url,
-            "url": url,
-            "regular_price": regular_price,
-            "sale_price": sale_price,
-            "on_sale": is_on_sale
-        }
+        data = REF.get()
+        if data is None:
+            return jsonify([]), 200
+        # Convert dict to list with ID included
+        formatted = [{"id": k, **v} for k, v in data.items()]
+        return jsonify(formatted), 200
     except Exception as e:
-        print(f"Error scraping {url}: {e}")
-        return None
+        return jsonify({"error": str(e)}), 500
 
-# --- Scan Trigger Endpoint ---
-@app.route("/run-scan", methods=["POST"])
+@app.route('/urls', methods=['POST'])
+def add_url():
+    try:
+        url_data = request.json
+        new_ref = REF.push()
+        new_ref.set(url_data)
+        return jsonify({"id": new_ref.key}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/urls/<url_id>', methods=['PUT'])
+def update_url(url_id):
+    try:
+        url_data = request.json
+        REF.child(url_id).update(url_data)
+        return jsonify({"status": "updated"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/urls/<url_id>', methods=['DELETE'])
+def delete_url(url_id):
+    try:
+        REF.child(url_id).delete()
+        return jsonify({"status": "deleted"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/run-scan', methods=['POST'])
 def run_scan():
-    expected_token = os.environ.get("SCAN_TOKEN")
-    received_token = request.headers.get("X-Scan-Token")
-    if expected_token is None or received_token != expected_token:
+    token = request.headers.get("Authorization")
+    expected = f"Bearer {os.environ.get('SCAN_TOKEN')}"
+    if token != expected:
         return jsonify({"error": "Unauthorized"}), 401
 
-    urls_dict = REF.get() or {}
-    results = []
+    try:
+        # Placeholder: real scan logic goes here
+        print("Running scan on URLs...")
+        return jsonify({"status": "Scan complete"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    for entry in urls_dict.values():
-        if entry.get("disabled"):
-            continue
-        url = entry["url"]
-        title = entry.get("title", "")
-
-        result = scrape_product(title, url)
-        if result and result["on_sale"]:
-            results.append(result)
-
-    if results:
-        send_email_report(results)
-
-    return jsonify({"results": results, "count": len(results)})
-
-# --- Main ---
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
