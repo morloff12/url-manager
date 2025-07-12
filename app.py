@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 load_dotenv()
 
@@ -43,8 +44,8 @@ def add_url():
     data = request.json
     url = data.get("url")
     title = data.get("title", "")
-    if not url:
-        return jsonify({"error": "Missing 'url'"}), 400
+    if not url or not title:
+        return jsonify({"error": "Missing 'url' or 'title'"}), 400
     new_ref = REF.push()
     item = {
         "id": new_ref.key,
@@ -73,26 +74,33 @@ def scrape_price_from_url(url):
     try:
         response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace("www.", "")
 
         reg_price = None
         sale_price = None
+        promotion = None
 
-        # Specific to LiquorMarts.ca
-        reg = soup.find(class_="retail_price")
-        if reg:
-            reg_price = reg.get_text(strip=True)
+        if "liquormarts.ca" in domain:
+            reg = soup.find(class_="retail_price")
+            if reg:
+                reg_price = reg.get_text(strip=True)
 
-        sale = soup.find(class_="promo_price")
-        if sale:
-            sale_price = sale.get_text(strip=True)
+            sale = soup.find(class_="promo_price")
+            if sale:
+                sale_price = sale.get_text(strip=True)
+
+            promo = soup.find(class_="bonus_miles_number")
+            if promo:
+                promotion = promo.get_text(strip=True)
 
         if reg_price == sale_price:
             sale_price = None
 
-        return reg_price, sale_price
+        return reg_price, sale_price, promotion
     except Exception as e:
         print(f"[SCRAPER ERROR] {e}")
-        return None, None
+        return None, None, None
 
 @app.route("/send-email", methods=["POST"])
 def send_email():
@@ -105,27 +113,42 @@ def send_email():
     try:
         data = db.reference('urls').get() or {}
         active_items = [entry for entry in data.values() if not entry.get("disabled", False)]
-        if not active_items:
-            return jsonify({"message": "No active items to include in email"}), 200
+
+        sorted_items = sorted(
+            active_items,
+            key=lambda x: (
+                not any(scrape_price_from_url(x.get("url"))[1:]),  # False if has sale/promo
+                x.get("title", "")
+            )
+        )
 
         html_rows = ""
-        for entry in active_items:
-            reg_price, sale_price = scrape_price_from_url(entry.get("url"))
+        for entry in sorted_items:
+            reg_price, sale_price, promo = scrape_price_from_url(entry.get("url"))
             title = entry.get("title", "(no title)")
             url = entry.get("url")
-            html_rows += f"<tr><td><strong>{title}</strong></td><td><a href='{url}'>{url}</a></td><td align='right'>{reg_price or ''}</td><td align='right'>{sale_price or ''}</td></tr>"
+            html_rows += f"<tr><td><a href='{url}'>{title}</a></td><td align='right'>{reg_price or ''}</td><td align='right'>{sale_price or ''}</td><td align='right'>{promo or ''}</td></tr>"
 
         html_body = f"""
         <html>
+        <head>
+            <meta charset='UTF-8'>
+            <style>
+                body {{ font-family: Arial, sans-serif; }}
+                table {{ border-collapse: collapse; }}
+                th, td {{ padding: 6px 12px; border: 1px solid #ccc; }}
+                th {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
         <body>
             <p>Watchlist Items as of {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC:</p>
-            <table border='1' cellpadding='6' cellspacing='0' style="border-collapse: collapse; font-family: Arial, sans-serif;">
-              <thead style="background-color: #f2f2f2;">
+            <table>
+              <thead>
                 <tr>
                   <th align="left">Title</th>
-                  <th align="left">URL</th>
                   <th align="right">Regular Price</th>
                   <th align="right">Sale Price</th>
+                  <th align="right">Promotions</th>
                 </tr>
               </thead>
               <tbody>
