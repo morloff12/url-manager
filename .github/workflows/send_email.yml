@@ -1,8 +1,9 @@
 name: Daily Email Notification
  
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '0 13 * * *'  # 8 AM CST = 13:00 UTC
+    - cron: '0 14 * * *'  # 8 AM CST during Standard Time
 
 jobs:
   send-email:
