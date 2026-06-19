@@ -1,5 +1,5 @@
 name: Daily Email Notification
-
+ 
 on:
   schedule:
     - cron: '0 13 * * *'  # 8 AM CST = 13:00 UTC
